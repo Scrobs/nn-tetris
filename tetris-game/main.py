@@ -1,4 +1,4 @@
-# File: main.py
+# main.py
 
 import pygame
 import sys
@@ -12,14 +12,11 @@ def main():
     game_logger = loggers['game']
     main_logger.info("Starting Tetris game")
     pygame.init()
-    
-    # Initialize mixer for sounds
     try:
         pygame.mixer.init()
         game_logger.debug("Pygame mixer initialized")
     except pygame.error as e:
         game_logger.error("Failed to initialize Pygame mixer: %s", str(e))
-    
     try:
         config = GameConfig.load_config('config/default_config.json')
         game_logger.info("Game configuration loaded")
@@ -31,14 +28,12 @@ def main():
         game_logger.error("Unexpected error loading configuration: %s", str(e))
         game_logger.info("Using default configuration values.")
         config = GameConfig()
-    
     try:
         game = TetrisGame(config)
         game_logger.info("Game instance created successfully")
     except Exception as e:
         game_logger.critical("Fatal error in main: %s", str(e), exc_info=True)
         sys.exit(1)
-    
     try:
         game.run()
     except Exception as e:

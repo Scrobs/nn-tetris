@@ -1,4 +1,4 @@
-# File: core/grid.py
+# core/grid.py
 
 from typing import List, Optional, Any, Iterator
 from utils.logging_setup import setup_logging
@@ -9,13 +9,11 @@ game_logger = loggers['game']
 class Grid:
     """
     Represents the Tetris game grid with complete sequence protocol implementation.
-    
     Key Features:
     - Full sequence protocol support (iteration, indexing, length)
     - Bounds checking and validation
     - Safe cell access and modification
     - Efficient line clearing
-    
     Implementation Details:
     The grid is implemented as a 2D list where:
     - Outer list represents rows (y-coordinate)
@@ -23,13 +21,11 @@ class Grid:
     - None represents empty cells
     - String values represent piece types
     """
-
     def __init__(self, config: Any):
         """
         Initialize the grid with dimensions from config.
-        
         Args:
-            config: GameConfig instance with grid dimensions
+        config: GameConfig instance with grid dimensions
         """
         self.columns = config.columns
         self.rows = config.rows
@@ -43,15 +39,12 @@ class Grid:
     def __getitem__(self, index: int) -> List[Optional[str]]:
         """
         Enable grid[y] access with bounds checking.
-        
         Args:
-            index: Row index to access
-            
+        index: Row index to access
         Returns:
-            List[Optional[str]]: The requested row
-            
+        List[Optional[str]]: The requested row
         Raises:
-            IndexError: If index is out of bounds
+        IndexError: If index is out of bounds
         """
         if not isinstance(index, int):
             raise TypeError(f"Grid indices must be integers, not {type(index)}")
@@ -62,14 +55,12 @@ class Grid:
     def __setitem__(self, index: int, value: List[Optional[str]]) -> None:
         """
         Enable grid[y] = row assignment with validation.
-        
         Args:
-            index: Row index to modify
-            value: New row contents
-            
+        index: Row index to modify
+        value: New row contents
         Raises:
-            IndexError: If index is out of bounds
-            ValueError: If row has incorrect length
+        IndexError: If index is out of bounds
+        ValueError: If row has incorrect length
         """
         if not isinstance(index, int):
             raise TypeError(f"Grid indices must be integers, not {type(index)}")
@@ -95,13 +86,11 @@ class Grid:
     def get_cell(self, x: int, y: int) -> Optional[str]:
         """
         Get cell content with bounds checking.
-        
         Args:
-            x: Column index
-            y: Row index
-            
+        x: Column index
+        y: Row index
         Returns:
-            Optional[str]: Cell contents or None if empty/invalid
+        Optional[str]: Cell contents or None if empty/invalid
         """
         if 0 <= x < self.columns and 0 <= y < self.rows:
             return self._grid[y][x]
@@ -110,14 +99,12 @@ class Grid:
     def set_cell(self, x: int, y: int, value: Optional[str]) -> bool:
         """
         Set cell content with bounds checking.
-        
         Args:
-            x: Column index
-            y: Row index
-            value: New cell content
-            
+        x: Column index
+        y: Row index
+        value: New cell content
         Returns:
-            bool: True if cell was set, False if out of bounds
+        bool: True if cell was set, False if out of bounds
         """
         if 0 <= x < self.columns and 0 <= y < self.rows:
             self._grid[y][x] = value
@@ -135,9 +122,8 @@ class Grid:
     def lock_piece(self, piece: Any) -> None:
         """
         Lock piece into grid, marking its occupied cells.
-        
         Args:
-            piece: Tetrimino to lock in place
+        piece: Tetrimino to lock in place
         """
         try:
             shape = piece.shape
@@ -156,35 +142,26 @@ class Grid:
     def clear_lines(self) -> int:
         """
         Remove completed lines and return count.
-        
         Returns:
-            int: Number of lines cleared
+        int: Number of lines cleared
         """
         try:
-            # Find completed lines
             full_rows = [
                 y for y in range(self.rows)
                 if all(cell is not None for cell in self._grid[y])
             ]
-            
             if not full_rows:
                 return 0
-                
-            # Remove completed lines
             new_grid = [
                 row for i, row in enumerate(self._grid)
                 if i not in full_rows
             ]
-            
-            # Add new empty lines at top
             lines_cleared = len(full_rows)
             for _ in range(lines_cleared):
                 new_grid.insert(0, [None] * self.columns)
-                
             self._grid = new_grid
             game_logger.debug(f"Cleared {lines_cleared} lines")
             return lines_cleared
-            
         except Exception as e:
             game_logger.error(f"Error clearing lines: {e}")
             return 0
