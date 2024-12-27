@@ -1,16 +1,17 @@
-# File: render/render_system.py
-
 import pygame
 import time
 import random
 from typing import List, Optional, Tuple, Dict
+from dataclasses import dataclass
+from enum import Enum
+
 from config.game_config import GameConfig
 from render.render_config import RenderConfig
 from core.tetrimino import Tetrimino
-from render.colors import Color, ColorAlpha
 from core.grid import Grid
+from render.colors import Color, ColorAlpha
 from utils.logging_setup import setup_logging
-from dataclasses import dataclass
+from render.ui_manager import UIManager
 
 loggers = setup_logging()
 render_logger = loggers['render']
@@ -23,84 +24,110 @@ class ScorePopup:
     start_time: float
     duration: float = 1.0
 
+class Layer(Enum):
+    """
+    Enumerates different rendering layers:
+      - BACKGROUND: The static grid or background
+      - GAME: Active Tetriminos, ghost pieces, etc.
+      - UI: Score, Next/Hold previews, etc.
+      - DEBUG: Optional debug overlay
+    """
+    BACKGROUND = 0
+    GAME = 1
+    UI = 2
+    DEBUG = 3
+
 class RenderSystem:
-    """Handles all rendering operations with proper layering and buffering."""
+    """
+    Handles all rendering operations with layered surfaces and a UI Manager for
+    drawing score, next pieces, hold pieces, etc. Also manages particle effects and
+    score popups.
+    """
+
     def __init__(self, config: GameConfig, render_config: RenderConfig):
-        """Initialize the RenderSystem with configurations."""
+        """
+        :param config: GameConfig with screen/UI dimensions and Tetris logic settings
+        :param render_config: RenderConfig for fonts, colors, and resource references
+        """
         self.config = config
         self.render_config = render_config
-        self.game_surface = pygame.Surface((self.config.screen_width, self.config.screen_height))
-        self.ui_surface = pygame.Surface((self.config.ui_width, self.config.screen_height))
-        self.ghost_surface = pygame.Surface((self.config.screen_width, self.config.screen_height), pygame.SRCALPHA)
-        self.debug_surface = pygame.Surface((self.config.screen_width, self.config.screen_height), pygame.SRCALPHA)
-        self.grid_surface = pygame.Surface((self.config.screen_width, self.config.screen_height))
+
+        # Dictionary of layered pygame.Surface objects
+        self.surfaces: Dict[Layer, pygame.Surface] = {}
+
+        # Manager that draws UI elements (score, next/held previews, menu, etc.)
+        self.ui_manager = UIManager(config, render_config)
+
+        # Particle effect + score popup tracking
         self.particles: List[Dict] = []
         self.score_popups: List[ScorePopup] = []
+
+        # Frame/time metrics
         self.frame_count = 0
         self.frame_times: List[float] = []
         self.last_frame_time = time.perf_counter()
         self.last_render_time: float = 0.0
+
         self._initialize_surfaces()
-        self._initialize_static_grid()
         self._initialize_particle_effects()
 
     def _initialize_surfaces(self) -> None:
-        """Initialize all rendering surfaces with proper layering."""
+        """
+        Create the layered surfaces: BACKGROUND, GAME, UI, DEBUG.
+        Fill the background layer with a default color.
+        """
         try:
-            self.game_surface.fill(self.render_config.colors.UI_COLORS['background'])
-            self.ui_surface.fill(self.render_config.colors.UI_COLORS['background'])
-            self.ghost_surface.fill((0, 0, 0, 0))
-            self.debug_surface.fill((0, 0, 0, 0))
-            self.grid_surface.fill(self.render_config.colors.UI_COLORS['background'])
-            render_logger.debug("All rendering surfaces initialized")
-        except pygame.error as e:
-            render_logger.error("Error initializing surfaces: %s", str(e))
+            width = self.config.screen_width
+            height = self.config.screen_height
+            ui_width = self.config.ui_width
 
-    def _initialize_static_grid(self) -> None:
-        """Create the static grid background with proper grid lines."""
-        try:
-            render_logger.debug("Initializing static grid background")
-            self.grid_surface.fill(self.render_config.colors.UI_COLORS['background'])
-            for x in range(0, self.config.screen_width + 1, self.config.grid_size):
-                pygame.draw.line(
-                    self.grid_surface,
-                    self.render_config.colors.UI_COLORS['grid_lines'],
-                    (x, 0),
-                    (x, self.config.screen_height),
-                    self.config.grid_line_width
-                )
-            for y in range(0, self.config.screen_height + 1, self.config.grid_size):
-                pygame.draw.line(
-                    self.grid_surface,
-                    self.render_config.colors.UI_COLORS['grid_lines'],
-                    (0, y),
-                    (self.config.screen_width, y),
-                    self.config.grid_line_width
-                )
-            render_logger.debug("Static grid background initialized successfully")
+            self.surfaces[Layer.BACKGROUND] = pygame.Surface((width, height))
+            self.surfaces[Layer.GAME] = pygame.Surface((width, height), pygame.SRCALPHA)
+            self.surfaces[Layer.UI] = pygame.Surface((ui_width, height), pygame.SRCALPHA)
+            self.surfaces[Layer.DEBUG] = pygame.Surface((width, height), pygame.SRCALPHA)
+
+            bg_color = self.render_config.colors.UI_COLORS['background']
+            self.surfaces[Layer.BACKGROUND].fill(bg_color)
+
+            render_logger.debug("Layered surfaces initialized successfully.")
         except pygame.error as e:
-            render_logger.error("Error initializing grid surface: %s", str(e))
+            render_logger.error(f"Error initializing surfaces: {e}")
 
     def _initialize_particle_effects(self) -> None:
-        """Initialize particle effects settings."""
+        """
+        Initialize default particle effect parameters (color, size).
+        """
         self.particle_effects_enabled = self.config.particle_effects
         self.particle_color = self.render_config.colors.UI_COLORS['highlight']
         self.particle_size = 5
 
     def clear_surfaces(self) -> None:
-        """Clear all rendering surfaces to their base state."""
+        """
+        Clear each layered surface to a base state. Typically called once per frame,
+        before drawing any new objects or UI.
+        """
         try:
-            render_logger.debug("Clearing all surfaces")
-            self.game_surface.blit(self.grid_surface, (0, 0))
-            self.ui_surface.fill(self.render_config.colors.UI_COLORS['background'])
-            self.ghost_surface.fill((0, 0, 0, 0))
-            self.debug_surface.fill((0, 0, 0, 0))
-            render_logger.debug("All surfaces cleared successfully")
-        except pygame.error as e:
-            render_logger.error("Error clearing surfaces: %s", str(e))
+            bg_surface = self.surfaces[Layer.BACKGROUND]
+            bg_surface.fill(self.render_config.colors.UI_COLORS['background'])
 
-    def draw_block(self, surface: pygame.Surface, x: int, y: int, color: Color, alpha: int = 255) -> None:
-        """Draw a single block on the given surface."""
+            self.surfaces[Layer.GAME].fill((0, 0, 0, 0))
+            self.surfaces[Layer.UI].fill((0, 0, 0, 0))
+            self.surfaces[Layer.DEBUG].fill((0, 0, 0, 0))
+
+            render_logger.debug("All surfaces cleared successfully.")
+        except pygame.error as e:
+            render_logger.error(f"Error clearing surfaces: {e}")
+
+    def draw_block(self,
+                   surface: pygame.Surface,
+                   x: int,
+                   y: int,
+                   color: Color,
+                   alpha: int = 255) -> None:
+        """
+        Draw a single Tetris block at grid cell (x, y) with optional alpha,
+        plus simple shading.
+        """
         try:
             rect = pygame.Rect(
                 x * self.config.grid_size + self.config.cell_padding,
@@ -108,84 +135,48 @@ class RenderSystem:
                 self.config.grid_size - (2 * self.config.cell_padding),
                 self.config.grid_size - (2 * self.config.cell_padding)
             )
+
             if alpha < 255:
-                s = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-                s.fill((*color, alpha))
-                surface.blit(s, rect)
+                block_surf = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+                block_surf.fill((*color, alpha))
+                surface.blit(block_surf, rect)
             else:
                 pygame.draw.rect(surface, color, rect)
+
             self._draw_piece_shading(surface, rect, color)
         except pygame.error as e:
-            render_logger.error("Error drawing block: %s", str(e))
+            render_logger.error(f"Error drawing block at ({x},{y}): {e}")
 
-    def draw_piece(self, piece: Tetrimino, ghost: bool = False,
-                  override_y: Optional[int] = None,
-                  override_x: Optional[int] = None,
-                  highlight: bool = False) -> None:
-        """Draw a tetrimino with proper shading, glow, and logging."""
-        try:
-            if not piece:
-                render_logger.warning("Attempted to draw None piece")
-                return
-            render_logger.debug(
-                "Drawing piece: type=%s, ghost=%s, pos=(%s, %s), highlight=%s",
-                piece.piece_type, ghost,
-                override_x if override_x is not None else piece.x,
-                override_y if override_y is not None else piece.y,
-                highlight
-            )
-            target_surface = self.ghost_surface if ghost else self.game_surface
-            if not target_surface:
-                render_logger.error("Target surface not available for piece drawing")
-                return
-            y_pos = override_y if override_y is not None else piece.y
-            x_pos = override_x if override_x is not None else piece.x
-            color = self.render_config.colors.get_piece_color(piece.piece_type)
-            alpha = 64 if ghost else 255
-            blocks_drawn = 0
-            for y, row in enumerate(piece.shape):
-                for x, cell in enumerate(row):
-                    if cell:
-                        blocks_drawn += 1
-                        if not ghost:
-                            shadow_rect = pygame.Rect(
-                                (x_pos + x) * self.config.grid_size + self.config.cell_padding + 2,
-                                (y_pos + y) * self.config.grid_size + self.config.cell_padding + 2,
-                                self.config.grid_size - (2 * self.config.cell_padding),
-                                self.config.grid_size - (2 * self.config.cell_padding)
-                            )
-                            pygame.draw.rect(target_surface, self.render_config.colors.UI_COLORS['shadow'], shadow_rect)
-                        self.draw_block(target_surface, x_pos + x, y_pos + y, color, alpha)
-                        if highlight and not ghost:
-                            self._draw_glow(target_surface, x_pos + x, y_pos + y, color)
-            render_logger.debug("Successfully drew piece with %d blocks", blocks_drawn)
-        except (pygame.error, AttributeError) as e:
-            render_logger.error("Error drawing piece: %s", str(e))
-
-    def _draw_piece_shading(self, surface: pygame.Surface, rect: pygame.Rect,
+    def _draw_piece_shading(self,
+                            surface: pygame.Surface,
+                            rect: pygame.Rect,
                             color: Color) -> None:
-        """Add shading effects to a piece."""
+        """
+        Draw highlight and shadow lines on the edges of a block for a 3D look.
+        """
         try:
-            # Light shading on top and left
+            # Lighter top edge
             pygame.draw.line(
                 surface,
                 tuple(min(c + 50, 255) for c in color[:3]),
                 rect.topleft,
                 rect.topright
             )
+            # Lighter left edge
             pygame.draw.line(
                 surface,
                 tuple(min(c + 30, 255) for c in color[:3]),
                 rect.topleft,
                 rect.bottomleft
             )
-            # Dark shading on bottom and right
+            # Darker bottom edge
             pygame.draw.line(
                 surface,
                 tuple(max(c - 50, 0) for c in color[:3]),
                 rect.bottomleft,
                 rect.bottomright
             )
+            # Darker right edge
             pygame.draw.line(
                 surface,
                 tuple(max(c - 30, 0) for c in color[:3]),
@@ -193,10 +184,16 @@ class RenderSystem:
                 rect.bottomright
             )
         except pygame.error as e:
-            render_logger.error("Error drawing piece shading: %s", str(e))
+            render_logger.error(f"Error drawing piece shading: {e}")
 
-    def _draw_glow(self, surface: pygame.Surface, x: int, y: int, color: Color) -> None:
-        """Draw a glow effect around a block."""
+    def _draw_glow(self,
+                   surface: pygame.Surface,
+                   x: int,
+                   y: int,
+                   color: Color) -> None:
+        """
+        Draw a glow outline around a single block at grid coords (x, y).
+        """
         try:
             glow_color = tuple(min(c + 100, 255) for c in color)
             rect = pygame.Rect(
@@ -207,41 +204,131 @@ class RenderSystem:
             )
             pygame.draw.rect(surface, glow_color, rect, 2)
         except pygame.error as e:
-            render_logger.error("Error drawing glow effect: %s", str(e))
+            render_logger.error(f"Error drawing glow: {e}")
 
-    def draw_grid(self, grid: 'Grid') -> None:
+    def draw_piece(self,
+                   piece: Tetrimino,
+                   ghost: bool = False,
+                   override_y: Optional[int] = None,
+                   override_x: Optional[int] = None,
+                   highlight: bool = False) -> None:
         """
-        Draw the game grid with filled cells.
-        Args:
-            grid: The game grid to render
+        Draw an entire Tetrimino piece onto the GAME layer.
+
+        :param piece: The Tetrimino object
+        :param ghost: If True, draw at reduced alpha
+        :param override_y, override_x: If given, override piece's default x,y
+        :param highlight: If True, add an extra glow around each block
         """
+        if not piece:
+            render_logger.warning("draw_piece called with None piece.")
+            return
+
+        game_surface = self.surfaces.get(Layer.GAME)
+        if not game_surface:
+            render_logger.error("No GAME surface available to draw the Tetrimino.")
+            return
+
+        alpha = 64 if ghost else 255
+        base_x = override_x if override_x is not None else piece.x
+        base_y = override_y if override_y is not None else piece.y
+
         try:
-            if self.game_surface and self.grid_surface:
-                self.game_surface.blit(self.grid_surface, (0, 0))
-                
-                for y in range(len(grid)):
-                    for x in range(grid.columns):
-                        cell = grid[y][x]  # Use Grid's __getitem__ method
-                        if cell:
-                            rect = pygame.Rect(
-                                x * self.config.grid_size + self.config.cell_padding,
-                                y * self.config.grid_size + self.config.cell_padding,
+            for row_idx, row in enumerate(piece.shape):
+                for col_idx, cell in enumerate(row):
+                    if cell:
+                        # Draw a small shadow offset if not ghost
+                        if not ghost:
+                            shadow_rect = pygame.Rect(
+                                (base_x + col_idx) * self.config.grid_size + self.config.cell_padding + 2,
+                                (base_y + row_idx) * self.config.grid_size + self.config.cell_padding + 2,
                                 self.config.grid_size - (2 * self.config.cell_padding),
                                 self.config.grid_size - (2 * self.config.cell_padding)
                             )
-                            pygame.draw.rect(self.game_surface, (200, 200, 200), rect)
-                            
+                            pygame.draw.rect(
+                                game_surface,
+                                self.render_config.colors.UI_COLORS['shadow'],
+                                shadow_rect
+                            )
+                        # Draw the block
+                        block_color = self.render_config.colors.get_piece_color(piece.piece_type)
+                        self.draw_block(game_surface, base_x + col_idx, base_y + row_idx, block_color, alpha)
+
+                        # Optional glow
+                        if highlight and not ghost:
+                            self._draw_glow(game_surface, base_x + col_idx, base_y + row_idx, block_color)
+        except pygame.error as e:
+            render_logger.error(f"Error drawing piece '{piece.piece_type}': {e}")
+
+    def draw_grid(self, grid: Grid) -> None:
+        """
+        Draw the Tetris grid lines and locked cells onto the BACKGROUND layer.
+        """
+        bg_surface = self.surfaces.get(Layer.BACKGROUND)
+        if not bg_surface:
+            render_logger.error("No BACKGROUND surface found to draw_grid.")
+            return
+
+        try:
+            # Clear background
+            bg_surface.fill(self.render_config.colors.UI_COLORS['background'])
+
+            # Draw grid lines
+            for x in range(0, self.config.screen_width + 1, self.config.grid_size):
+                pygame.draw.line(
+                    bg_surface,
+                    self.render_config.colors.UI_COLORS['grid_lines'],
+                    (x, 0),
+                    (x, self.config.screen_height),
+                    self.config.grid_line_width
+                )
+            for y in range(0, self.config.screen_height + 1, self.config.grid_size):
+                pygame.draw.line(
+                    bg_surface,
+                    self.render_config.colors.UI_COLORS['grid_lines'],
+                    (0, y),
+                    (self.config.screen_width, y),
+                    self.config.grid_line_width
+                )
+
+            # Draw locked cells
+            for row_index, row in enumerate(grid.grid):
+                for col_index, cell in enumerate(row):
+                    if cell:
+                        rect = pygame.Rect(
+                            col_index * self.config.grid_size + self.config.cell_padding,
+                            row_index * self.config.grid_size + self.config.cell_padding,
+                            self.config.grid_size - (2 * self.config.cell_padding),
+                            self.config.grid_size - (2 * self.config.cell_padding)
+                        )
+                        pygame.draw.rect(bg_surface, (200, 200, 200), rect)
+
         except (pygame.error, TypeError, IndexError) as e:
-            logger.error(f"Error drawing grid: {e}")
+            game_logger.error(f"Error drawing grid: {e}")
 
     def add_score_popup(self, points: int, position: Tuple[int, int]) -> None:
-        """Add a score popup at the specified position."""
-        popup = ScorePopup(text=f"+{points}", position=position, start_time=time.time())
+        """
+        Enqueue a small floating text popup at pixel (position).
+        """
+        popup = ScorePopup(
+            text=f"+{points}",
+            position=position,
+            start_time=time.time(),
+            duration=1.0
+        )
         self.score_popups.append(popup)
-        render_logger.debug("Added score popup: %s at %s", popup.text, popup.position)
+        render_logger.debug(f"Added score popup '{popup.text}' at {popup.position}")
 
     def draw_score_popups(self) -> None:
-        """Draw all active score popups with fade-out effect."""
+        """
+        Draw all active score popups onto the UI layer. 
+        NO external argument is needed; we fetch the UI surface ourselves.
+        """
+        ui_surface = self.surfaces.get(Layer.UI)
+        if not ui_surface:
+            render_logger.error("No UI surface available for score popups.")
+            return
+
         current_time = time.time()
         for popup in self.score_popups[:]:
             elapsed = current_time - popup.start_time
@@ -250,285 +337,102 @@ class RenderSystem:
                 continue
             alpha = max(255 - int((elapsed / popup.duration) * 255), 0)
             text_surface = self.render_config.fonts['small'].render(
-                popup.text, True, self.render_config.colors.UI_COLORS['highlight']
+                popup.text,
+                True,
+                self.render_config.colors.UI_COLORS['highlight']
             )
             text_surface.set_alpha(alpha)
-            self.ui_surface.blit(text_surface, popup.position)
-            render_logger.debug("Drawing score popup: %s with alpha: %d", popup.text, alpha)
-
-    def draw_ui(self, score: int, high_score: int, level: int, lines: int,
-               next_pieces: List[Tetrimino], held_piece: Optional[Tetrimino] = None,
-               combo: int = 0) -> None:
-        """Draw all UI elements."""
-        try:
-            render_logger.debug("Drawing UI elements")
-            if not self.render_config.fonts or not self.ui_surface:
-                render_logger.error("Fonts or UI surface not available")
-                return
-            self._draw_score_section(score, high_score, level, lines, combo)
-            self._draw_next_pieces(next_pieces)
-            if held_piece is not None:
-                self._draw_held_piece(held_piece)
-            else:
-                render_logger.debug("No held piece to draw")
-            self._draw_background_image()
-            self._draw_border()
-            self.draw_score_popups()
-            render_logger.debug("UI elements drawn successfully")
-        except Exception as e:
-            render_logger.error("Error drawing UI: %s", str(e))
-
-    def _draw_score_section(self, score: int, high_score: int, level: int, lines: int, combo: int) -> None:
-        """Draw score and statistics section, including high score."""
-        try:
-            margin = 20
-            y_start = margin
-            spacing = 40
-            elements = [
-                f"Score: {score:,}",
-                f"High Score: {high_score:,}",
-                f"Level: {level}",
-                f"Lines: {lines}"
-            ]
-            for idx, text in enumerate(elements):
-                text_surface = self.render_config.fonts['small'].render(
-                    text, True, self.render_config.colors.UI_COLORS['text']
-                )
-                self.ui_surface.blit(text_surface, (margin, y_start + idx * spacing))
-            if combo > 0:
-                combo_text = self.render_config.fonts['small'].render(
-                    f"Combo: x{combo}", True, self.render_config.colors.UI_COLORS['highlight']
-                )
-                self.ui_surface.blit(combo_text, (margin, y_start + len(elements) * spacing))
-        except Exception as e:
-            render_logger.error("Error drawing score section: %s", str(e))
-
-    def _draw_held_piece(self, held_piece: Tetrimino) -> None:
-        """Draw the held piece with logging."""
-        try:
-            if not self.render_config.fonts or not self.ui_surface:
-                render_logger.error("Fonts or UI surface not available for held piece")
-                return
-            label = self.render_config.fonts['small'].render(
-                "Hold", True, self.render_config.colors.UI_COLORS['text']
-            )
-            self.ui_surface.blit(label, (20, 150))
-            held_surface = pygame.Surface((
-                4 * self.config.grid_size,
-                4 * self.config.grid_size
-            ), pygame.SRCALPHA)
-            held_surface.fill(self.render_config.colors.UI_COLORS['background'])
-            x_offset = (held_surface.get_width() - len(held_piece.shape[0]) * self.config.grid_size) // 2
-            y_offset = (held_surface.get_height() - len(held_piece.shape) * self.config.grid_size) // 2
-            for y, row in enumerate(held_piece.shape):
-                for x, cell in enumerate(row):
-                    if cell:
-                        rect = pygame.Rect(
-                            x_offset + x * self.config.grid_size + self.config.cell_padding,
-                            y_offset + y * self.config.grid_size + self.config.cell_padding,
-                            self.config.grid_size - (2 * self.config.cell_padding),
-                            self.config.grid_size - (2 * self.config.cell_padding)
-                        )
-                        pygame.draw.rect(held_surface, self.render_config.colors.get_piece_color(held_piece.piece_type), rect)
-                        self._draw_glow(held_surface, x, y, self.render_config.colors.get_piece_color(held_piece.piece_type))
-            self.ui_surface.blit(held_surface, (20, 180))
-            render_logger.debug("Drew held piece: %s", held_piece.piece_type)
-        except Exception as e:
-            render_logger.error("Error drawing held piece: %s", str(e))
-
-    def _draw_next_pieces(self, next_pieces: List[Tetrimino]) -> None:
-        """Draw preview of next pieces."""
-        try:
-            if not self.render_config.fonts or not self.ui_surface:
-                return
-            label = self.render_config.fonts['small'].render(
-                "Next", True, self.render_config.colors.UI_COLORS['text']
-            )
-            self.ui_surface.blit(label, (20, 20))
-            preview_y = 60
-            for piece in next_pieces[:self.config.preview_pieces]:
-                preview_surface = pygame.Surface((
-                    4 * self.config.grid_size,
-                    4 * self.config.grid_size
-                ), pygame.SRCALPHA)
-                preview_surface.fill(self.render_config.colors.UI_COLORS['background'])
-                x_offset = (preview_surface.get_width() - len(piece.shape[0]) * self.config.grid_size) // 2
-                y_offset = (preview_surface.get_height() - len(piece.shape) * self.config.grid_size) // 2
-                for y, row in enumerate(piece.shape):
-                    for x, cell in enumerate(row):
-                        if cell:
-                            rect = pygame.Rect(
-                                x_offset + x * self.config.grid_size + self.config.cell_padding,
-                                y_offset + y * self.config.grid_size + self.config.cell_padding,
-                                self.config.grid_size - (2 * self.config.cell_padding),
-                                self.config.grid_size - (2 * self.config.cell_padding)
-                            )
-                            pygame.draw.rect(preview_surface, self.render_config.colors.get_piece_color(piece.piece_type), rect)
-                self.ui_surface.blit(preview_surface, (20, preview_y))
-                preview_y += 80
-        except Exception as e:
-            render_logger.error("Error drawing next pieces: %s", str(e))
-
-    def _draw_background_image(self) -> None:
-        """Draw a background image or pattern for the UI panel."""
-        try:
-            overlay = pygame.Surface((self.config.ui_width, self.config.screen_height), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 50))
-            self.ui_surface.blit(overlay, (0, 0))
-            render_logger.debug("Background image or overlay drawn on UI")
-        except pygame.error as e:
-            render_logger.error("Error drawing background image: %s", str(e))
-
-    def _draw_border(self) -> None:
-        """Draw borders around the UI panel for better separation."""
-        try:
-            border_color = self.render_config.colors.UI_COLORS['highlight']
-            pygame.draw.rect(
-                self.ui_surface,
-                border_color,
-                self.ui_surface.get_rect(),
-                2
-            )
-            render_logger.debug("UI border drawn")
-        except pygame.error as e:
-            render_logger.error("Error drawing UI border: %s", str(e))
-
-    def draw_pause_screen(self) -> None:
-        """Draw the pause screen overlay."""
-        try:
-            if not self.render_config.fonts or not self.ui_surface:
-                render_logger.error("Fonts or UI surface not available for pause screen")
-                return
-            pause_text = self.render_config.fonts['large'].render(
-                "PAUSED", True, self.render_config.colors.UI_COLORS['highlight']
-            )
-            pause_rect = pause_text.get_rect(center=(self.config.screen_width // 2, self.config.screen_height // 2))
-            self.game_surface.blit(pause_text, pause_rect)
-            render_logger.debug("Pause screen drawn")
-        except Exception as e:
-            render_logger.error("Error drawing pause screen: %s", str(e))
-
-    def draw_game_over(self, score: int) -> None:
-        """Draw the game over screen."""
-        try:
-            if not self.render_config.fonts or not self.ui_surface:
-                render_logger.error("Fonts or UI surface not available for game over screen")
-                return
-            game_over_text = self.render_config.fonts['large'].render(
-                "GAME OVER", True, self.render_config.colors.UI_COLORS['highlight']
-            )
-            score_text = self.render_config.fonts['medium'].render(
-                f"Score: {score:,}", True, self.render_config.colors.UI_COLORS['text']
-            )
-            restart_text = self.render_config.fonts['small'].render(
-                "Press R to Restart or Q to Quit", True, self.render_config.colors.UI_COLORS['text']
-            )
-            game_over_rect = game_over_text.get_rect(center=(self.config.screen_width // 2, self.config.screen_height // 2 - 50))
-            score_rect = score_text.get_rect(center=(self.config.screen_width // 2, self.config.screen_height // 2))
-            restart_rect = restart_text.get_rect(center=(self.config.screen_width // 2, self.config.screen_height // 2 + 50))
-            self.game_surface.blit(game_over_text, game_over_rect)
-            self.game_surface.blit(score_text, score_rect)
-            self.game_surface.blit(restart_text, restart_rect)
-            if self.render_config.sounds.get('game_over'):
-                self.render_config.sounds['game_over'].play()
-            render_logger.debug("Game over screen drawn")
-        except Exception as e:
-            render_logger.error("Error drawing game over screen: %s", str(e))
-
-    def draw_debug_info(self, frame_counter: int, fps: float) -> None:
-        """Draw debug information on the debug surface."""
-        try:
-            if not self.render_config.fonts or not self.debug_surface:
-                render_logger.error("Fonts or debug surface not available for debug info")
-                return
-            debug_text = self.render_config.fonts['small'].render(
-                f"Frame: {frame_counter} | FPS: {fps:.1f}",
-                True,
-                self.render_config.colors.UI_COLORS['text']
-            )
-            self.debug_surface.blit(debug_text, (10, 5))
-            render_logger.debug("Debug information drawn")
-        except Exception as e:
-            render_logger.error("Error drawing debug info: %s", str(e))
-
-    def draw_menu(self, options: List[str], selected_index: int) -> None:
-        """Draw a menu with given options and highlight the selected one."""
-        try:
-            menu_font = self.render_config.fonts['large']
-            for idx, option in enumerate(options):
-                if idx == selected_index:
-                    text_surface = menu_font.render(option, True, self.render_config.colors.UI_COLORS['highlight'])
-                    arrow_surface = self.render_config.fonts['small'].render('➤', True, self.render_config.colors.UI_COLORS['highlight'])
-                    self.ui_surface.blit(arrow_surface, (20, 20 + idx * 60))
-                    text_rect = text_surface.get_rect(topleft=(50, 20 + idx * 60))
-                    self.ui_surface.blit(text_surface, text_rect)
-                else:
-                    text_surface = menu_font.render(option, True, self.render_config.colors.UI_COLORS['text'])
-                    text_rect = text_surface.get_rect(topleft=(50, 20 + idx * 60))
-                    self.ui_surface.blit(text_surface, text_rect)
-        except Exception as e:
-            render_logger.error("Error drawing menu: %s", str(e))
+            ui_surface.blit(text_surface, popup.position)
 
     def trigger_particle_effect(self, position: Tuple[int, int]) -> None:
-        """Trigger a particle effect at the specified grid position."""
+        """
+        Spawn basic particle effects around grid cell (x,y).
+        position is grid coords, so convert to approximate pixel coords.
+        """
         if not self.particle_effects_enabled:
             return
-        x, y = position
-        pixel_x = x * self.config.grid_size + self.config.cell_padding + self.config.grid_size // 2
-        pixel_y = y * self.config.grid_size + self.config.cell_padding + self.config.grid_size // 2
+
+        x_grid, y_grid = position
+        px = x_grid * self.config.grid_size + self.config.grid_size
+        py = y_grid * self.config.grid_size + self.config.grid_size
         for _ in range(20):
-            velocity = [random.randint(-3, 3), random.randint(-3, -1)]
+            vx = random.randint(-3, 3)
+            vy = random.randint(-3, -1)
             lifetime = random.uniform(0.5, 1.0)
             self.particles.append({
-                'position': [pixel_x, pixel_y],
-                'velocity': velocity,
-                'lifetime': lifetime
+                "position": [px, py],
+                "velocity": [vx, vy],
+                "lifetime": lifetime
             })
-        render_logger.debug("Triggered particle effect at (%d, %d)", x, y)
+        render_logger.debug(f"Triggered particle effect at ({x_grid},{y_grid}).")
 
     def update_particles(self, delta_time: float) -> None:
-        """Update particle positions and lifespans."""
-        updated_particles = []
-        for particle in self.particles:
-            particle['position'][0] += particle['velocity'][0]
-            particle['position'][1] += particle['velocity'][1]
-            particle['velocity'][1] += 9.81 * delta_time  # Gravity effect
-            particle['lifetime'] -= delta_time
-            if particle['lifetime'] > 0:
-                updated_particles.append(particle)
-        self.particles = updated_particles
+        """
+        Update active particles (movement + lifetime). Remove expired.
+        """
+        updated_list = []
+        for p in self.particles:
+            p["position"][0] += p["velocity"][0]
+            p["position"][1] += p["velocity"][1]
+            p["velocity"][1] += 9.81 * delta_time  # gravity
+            p["lifetime"] -= delta_time
+            if p["lifetime"] > 0:
+                updated_list.append(p)
+        self.particles = updated_list
 
     def draw_particles(self) -> None:
-        """Draw all particles with fade-out effect."""
-        for particle in self.particles:
-            alpha = int(255 * (particle['lifetime'] / 1.0))
-            particle_color = (*self.particle_color, alpha)
-            pygame.draw.circle(self.game_surface, particle_color, (int(particle['position'][0]), int(particle['position'][1])), self.particle_size)
-
-    def compose_frame(self, screen: pygame.Surface, frame_count: int) -> None:
         """
-        Compose final frame with proper positioning and timing logging.
-        Includes summary logs at controlled intervals to prevent log spam.
+        Draw all active particles onto the GAME layer.
+        """
+        game_surface = self.surfaces.get(Layer.GAME)
+        if not game_surface:
+            return
+
+        for p in self.particles:
+            alpha = int(255 * (p["lifetime"] / 1.0))
+            color = (*self.particle_color, alpha)
+            px = int(p["position"][0])
+            py = int(p["position"][1])
+            pygame.draw.circle(game_surface, color, (px, py), self.particle_size)
+
+    def compose_frame(self,
+                      screen: pygame.Surface,
+                      frame_count: int) -> None:
+        """
+        Final step: Blit the layered surfaces in order (BACKGROUND->GAME->UI->DEBUG)
+        onto the main display, then flip.
         """
         frame_start = time.perf_counter()
         try:
             if not screen:
-                render_logger.error("No screen surface available for composition")
+                render_logger.error("No main screen surface provided to compose_frame.")
                 return
-            render_logger.debug("Starting frame composition")
-            screen.fill(self.render_config.colors.UI_COLORS['background'])
-            if self.game_surface:
-                screen.blit(self.game_surface, (0, 0))
-            if self.ghost_surface:
-                screen.blit(self.ghost_surface, (0, 0))
-            if self.ui_surface:
-                screen.blit(self.ui_surface, (self.config.screen_width, 0))
-            if self.debug_surface and self.render_config.debug_mode:
-                screen.blit(self.debug_surface, (0, 0))
+
+            screen.fill(self.render_config.colors.UI_COLORS["background"])
+
+            # Blit in order
+            bg_surf = self.surfaces[Layer.BACKGROUND]
+            if bg_surf:
+                screen.blit(bg_surf, (0, 0))
+
+            game_surf = self.surfaces[Layer.GAME]
+            if game_surf:
+                screen.blit(game_surf, (0, 0))
+
+            ui_surf = self.surfaces[Layer.UI]
+            if ui_surf:
+                screen.blit(ui_surf, (self.config.screen_width, 0))
+
+            debug_surf = self.surfaces[Layer.DEBUG]
+            if debug_surf and self.render_config.debug_mode:
+                screen.blit(debug_surf, (0, 0))
+
             frame_end = time.perf_counter()
-            render_time = (frame_end - frame_start) * 1000  # ms
+            render_time = (frame_end - frame_start) * 1000.0
             self.last_render_time = render_time
             self.frame_times.append(render_time)
+
+            # Log average FPS every 60 frames
             if frame_count % 60 == 0 and self.frame_times:
                 avg_frame_time = sum(self.frame_times) / len(self.frame_times)
                 fps = 1000.0 / avg_frame_time if avg_frame_time > 0 else 0.0
@@ -536,8 +440,131 @@ class RenderSystem:
                     f"Frame {frame_count}: Avg Frame Time: {avg_frame_time:.2f}ms, FPS: {fps:.1f}"
                 )
                 self.frame_times.clear()
+
             pygame.display.flip()
         except pygame.error as e:
-            render_logger.error("Error composing frame: %s", str(e))
+            render_logger.error(f"Error composing frame: {e}")
         finally:
-            self.last_frame_time = frame_end if 'frame_end' in locals() else self.last_frame_time
+            self.last_frame_time = frame_end if "frame_end" in locals() else self.last_frame_time
+
+    #
+    # These methods forward UI tasks to UIManager, then handle popups internally
+    #
+
+    def draw_ui(self,
+                score: int,
+                high_score: int,
+                level: int,
+                lines: int,
+                next_pieces: List[Tetrimino],
+                held_piece: Optional[Tetrimino] = None,
+                combo: int = 0) -> None:
+        """
+        Draw the entire UI (score, next/held, combos) onto the UI layer,
+        then internally draw score popups.
+        """
+        ui_surface = self.surfaces.get(Layer.UI)
+        if not ui_surface:
+            render_logger.error("UI surface not available for draw_ui.")
+            return
+
+        # Clear the UI layer
+        ui_surface.fill(self.render_config.colors.UI_COLORS['background'])
+
+        # Let UIManager handle the scoreboard, next/held logic
+        self.ui_manager.draw_game_ui(
+            ui_surface,
+            score,
+            high_score,
+            level,
+            lines,
+            next_pieces,
+            held_piece,
+            combo
+        )
+
+        # Now draw any score popups over that
+        self.draw_score_popups()
+
+        render_logger.debug("UI elements drawn successfully.")
+
+    def draw_menu(self,
+                  menu_options: List[str],
+                  selected_index: int) -> None:
+        """
+        Draw a menu on the UI layer, highlight the selected option.
+        """
+        ui_surface = self.surfaces.get(Layer.UI)
+        if not ui_surface:
+            render_logger.error("UI surface not available for menu rendering.")
+            return
+
+        ui_surface.fill(self.render_config.colors.UI_COLORS['background'])
+        self.ui_manager.draw_menu(ui_surface, menu_options, selected_index)
+
+    def draw_pause_screen(self) -> None:
+        """
+        Draw a "PAUSED" message on the GAME layer.
+        """
+        game_surface = self.surfaces.get(Layer.GAME)
+        if not game_surface or not self.render_config.fonts:
+            render_logger.error("Cannot draw pause screen (missing surface or fonts).")
+            return
+
+        pause_text = self.render_config.fonts['large'].render(
+            "PAUSED", True, self.render_config.colors.UI_COLORS['highlight']
+        )
+        pause_rect = pause_text.get_rect(
+            center=(self.config.screen_width // 2, self.config.screen_height // 2)
+        )
+        game_surface.blit(pause_text, pause_rect)
+        render_logger.debug("Pause screen drawn successfully.")
+
+    def draw_game_over(self, score: int) -> None:
+        """
+        Draw a "Game Over" overlay on the GAME layer, with final score.
+        """
+        game_surface = self.surfaces.get(Layer.GAME)
+        if not game_surface or not self.render_config.fonts:
+            render_logger.error("Cannot draw game over screen (missing surface or fonts).")
+            return
+
+        overlay = pygame.Surface((self.config.screen_width, self.config.screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))  # semi-transparent black
+
+        game_over_text = self.render_config.fonts['large'].render(
+            "GAME OVER", True, self.render_config.colors.UI_COLORS['highlight']
+        )
+        game_over_rect = game_over_text.get_rect(
+            center=(self.config.screen_width // 2, self.config.screen_height // 3)
+        )
+
+        score_text = self.render_config.fonts['medium'].render(
+            f"Score: {score:,}",
+            True,
+            self.render_config.colors.UI_COLORS['text']
+        )
+        score_rect = score_text.get_rect(
+            center=(self.config.screen_width // 2, self.config.screen_height // 3 + 80)
+        )
+
+        restart_text = self.render_config.fonts['small'].render(
+            "Press R to Restart or Q to Quit",
+            True,
+            self.render_config.colors.UI_COLORS['text']
+        )
+        restart_rect = restart_text.get_rect(
+            center=(self.config.screen_width // 2, self.config.screen_height // 3 + 130)
+        )
+
+        overlay.blit(game_over_text, game_over_rect)
+        overlay.blit(score_text, score_rect)
+        overlay.blit(restart_text, restart_rect)
+
+        game_surface.blit(overlay, (0, 0))
+
+        # Optional "game_over" sound
+        if self.render_config.sounds.get("game_over"):
+            self.render_config.sounds["game_over"].play()
+
+        render_logger.debug("Game Over screen drawn successfully.")
