@@ -114,13 +114,15 @@ class TestGameConfig(unittest.TestCase):
         with self.assertRaises(json.JSONDecodeError):
             GameConfig.load_config("invalid_config.json")
 
-    @patch("builtins.open", new_callable=mock_open, side_effect=FileNotFoundError)
+    @patch("builtins.open", side_effect=FileNotFoundError)
     def test_load_config_file_not_found(self, mock_file):
         """
         Test loading a configuration from a missing file.
         """
         with self.assertRaises(FileNotFoundError):
             GameConfig.load_config("non_existent_config.json")
+        mock_file.assert_called_once_with("non_existent_config.json", "r")
+
 
     def test_validate_display_settings_failure(self):
         """
