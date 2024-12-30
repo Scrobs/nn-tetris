@@ -131,10 +131,14 @@ class TestGameConfig(unittest.TestCase):
         """
         Test validation of invalid display settings.
         """
-        invalid_config = {"screen_width": 300, "grid_size": 40}
-        config = GameConfig(invalid_config)
-        with self.assertRaises(ValueError):
-            config._validate_display_settings()
+        invalid_config = {"screen_width": 300, "grid_size": 40}  # Invalid config
+        with self.assertRaises(ValueError) as context:
+            GameConfig(invalid_config)
+        self.assertEqual(
+            str(context.exception), "Screen width must be a multiple of grid size",
+            "Expected error message does not match."
+        )
+
 
     def tearDown(self):
         """
