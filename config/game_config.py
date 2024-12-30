@@ -1,22 +1,5 @@
 # config/game_config.py
 
-"""
-config/game_config.py - Game Configuration Management System
-This module implements a comprehensive configuration system for the Tetris game,
-managing all game parameters, display settings, and gameplay mechanics.
-Key Features:
-- Centralized configuration management
-- JSON-based configuration loading
-- Robust validation and error handling
-- Type-safe parameter management
-- Comprehensive logging integration
-Design Principles:
-1. Single Responsibility: Handles only configuration management
-2. Immutability: Configurations are validated once at initialization
-3. Type Safety: Strong typing for all configuration parameters
-4. Error Handling: Comprehensive validation and error reporting
-"""
-
 import json
 import logging
 from typing import Dict, Any, Optional
@@ -27,50 +10,7 @@ loggers = setup_logging()
 game_logger = loggers['game']
 
 class GameConfig:
-    """
-    Comprehensive game configuration management system.
-    This class manages all game settings including display parameters,
-    gameplay mechanics, performance settings, and debug options.
-    Attributes:
-    screen_width (int): Window width in pixels
-    screen_height (int): Window height in pixels
-    grid_size (int): Size of each grid cell in pixels
-    columns (int): Number of grid columns
-    rows (int): Number of grid rows
-    fps (int): Target frames per second
-    vsync (bool): Vertical synchronization flag
-    fixed_timestep (float): Physics update interval in seconds
-    max_frame_time (float): Maximum allowed frame time to prevent spiral of death
-    particle_pool_size (int): Maximum number of particle effects
-    fullscreen (bool): Fullscreen mode flag
-    ui_width (int): Width of UI panel in pixels
-    grid_line_width (int): Width of grid lines in pixels
-    cell_padding (int): Padding between cells in pixels
-    preview_margin (int): Margin around piece preview area
-    preview_pieces (int): Number of next pieces to show
-    das_delay (int): Delayed Auto Shift initial delay in frames
-    das_repeat (int): Delayed Auto Shift repeat interval in frames
-    soft_drop_speed (int): Soft drop multiplier
-    lock_delay (int): Piece lock delay in frames
-    input_buffer_frames (int): Input buffer size in frames
-    max_score (int): Maximum possible score
-    gravity_delay (float): Base gravity delay in seconds
-    lines_per_level (int): Lines required for level up
-    debug_mode (bool): Debug features toggle
-    particle_effects (bool): Particle effects toggle
-    logging_level (str): Logging verbosity level
-    """
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """
-        Initialize game configuration with defaults or provided settings.
-        Args:
-        config: Optional dictionary of configuration overrides.
-        If None, uses default values.
-        The initialization process:
-        1. Sets default values for all parameters
-        2. Applies any provided configuration overrides
-        3. Validates the final configuration state
-        """
         self.screen_width: int = 300
         self.screen_height: int = 600
         self.grid_size: int = 30
@@ -130,16 +70,6 @@ class GameConfig:
                           len([attr for attr in dir(self) if not attr.startswith('_')]))
 
     def _apply_config(self, config: Dict[str, Any]) -> None:
-        """
-        Apply configuration settings from a dictionary with robust validation.
-        Args:
-        config: Dictionary containing configuration overrides
-        Implementation Details:
-        - Validates each configuration key before application
-        - Logs warnings for unknown configuration parameters
-        - Maintains type safety through explicit casting
-        - Preserves immutability of critical game parameters
-        """
         for key, value in config.items():
             if hasattr(self, key):
                 try:
@@ -165,16 +95,6 @@ class GameConfig:
                 game_logger.warning("Unknown configuration key: %s", key)
 
     def _validate_config(self) -> None:
-        """
-        Validate the complete configuration state for consistency and constraints.
-        Validation Criteria:
-        1. Display dimensions must be positive and aligned with grid size
-        2. Performance parameters must be within reasonable bounds
-        3. Gameplay mechanics must maintain fair and playable conditions
-        4. System settings must be properly configured
-        Raises:
-        ValueError: If any configuration parameter fails validation
-        """
         try:
             self._validate_display_settings()
             self._validate_performance_settings()
@@ -185,7 +105,6 @@ class GameConfig:
             raise
 
     def _validate_display_settings(self) -> None:
-        """Validate display-related configuration parameters."""
         if self.screen_width <= 0 or self.screen_height <= 0:
             raise ValueError("Screen dimensions must be positive")
         if self.screen_width % self.grid_size != 0:
@@ -196,7 +115,6 @@ class GameConfig:
             raise ValueError("Grid line width and cell padding must be non-negative")
 
     def _validate_performance_settings(self) -> None:
-        """Validate performance-related configuration parameters."""
         if self.fps <= 0:
             raise ValueError("FPS must be positive")
         if not 0.0 < self.fixed_timestep <= 1.0:
@@ -207,7 +125,6 @@ class GameConfig:
             raise ValueError("Particle pool size must be non-negative")
 
     def _validate_gameplay_settings(self) -> None:
-        """Validate gameplay-related configuration parameters."""
         if self.preview_pieces < 0:
             raise ValueError("Preview pieces count must be non-negative")
         if self.initial_level < 1:
@@ -225,17 +142,6 @@ class GameConfig:
 
     @classmethod
     def load_config(cls, filepath: str) -> 'GameConfig':
-        """
-        Load configuration from a JSON file with comprehensive error handling.
-        Args:
-        filepath: Path to JSON configuration file
-        Returns:
-        GameConfig: New configuration instance
-        Raises:
-        FileNotFoundError: If configuration file doesn't exist
-        json.JSONDecodeError: If configuration file contains invalid JSON
-        ValueError: If configuration validation fails
-        """
         try:
             with open(filepath, 'r') as f:
                 config = json.load(f)
@@ -252,16 +158,6 @@ class GameConfig:
             raise
 
     def save_config(self, filepath: str) -> None:
-        """
-        Save current configuration to a JSON file.
-        Args:
-        filepath: Path to save configuration file
-        Implementation Details:
-        - Creates parent directories if needed
-        - Preserves formatting for readability
-        - Implements atomic write operations
-        - Handles permission and I/O errors
-        """
         try:
             config_dict = {
                 key: value for key, value in self.__dict__.items()

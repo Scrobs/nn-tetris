@@ -1,17 +1,6 @@
 """
 core/game.py - Tetris Game Core Implementation
 Implements the main Tetris game engine with fixed timestep physics and interpolated rendering.
-This module handles:
-- Game initialization and resource management
-- Physics simulation with fixed timestep updates
-- State management and game loop implementation
-- Performance monitoring and optimization
-
-Architecture Overview:
-- Follows Component-based design for modularity
-- Implements fixed timestep pattern for consistent physics
-- Uses interpolated rendering for smooth animation
-- Maintains clear separation between update and render cycles
 """
 
 import os
@@ -24,7 +13,7 @@ from typing import List, Optional, Callable, Dict, Tuple
 from dataclasses import dataclass
 from config.game_config import GameConfig
 from core.game_state import GameState
-from core.grid import Grid
+from core.grid import Grid 
 from core.score import Score
 from core.tetrimino import Tetrimino, TetriminoData
 from render.render_config import RenderConfig
@@ -38,60 +27,16 @@ from render.colors import Color
 loggers = setup_logging()
 game_logger = loggers['game']
 
-
 @dataclass
 class GameMetrics:
-    """
-    Container for comprehensive game performance metrics and state information.
-
-    Attributes:
-        frame_count: Total number of rendered frames
-        physics_updates: Total number of physics simulation steps
-        render_time: Time spent in rendering pipeline (ms)
-        physics_time: Time spent in physics updates (ms)
-        total_time: Total elapsed game time (s)
-    """
     frame_count: int
     physics_updates: int
     render_time: float
     physics_time: float
     total_time: float
 
-
 class TetrisGame:
-    """
-    Main game class handling game logic, state, and interactions.
-    Implements fixed timestep physics with interpolated rendering.
-
-    Key Features:
-    - Fixed timestep physics simulation (60 Hz)
-    - Interpolated rendering for smooth animation
-    - Comprehensive state management
-    - Performance-optimized update cycles
-    """
-
     def __init__(self, config: GameConfig):
-        """
-        Initialize the TetrisGame with configuration and subsystems.
-
-        Args:
-            config: GameConfig instance containing game parameters
-
-        Raises:
-            pygame.error: If display initialization fails
-            Exception: If subsystem initialization fails
-
-        Implementation Details:
-        1. Core Configuration
-           - Game parameters
-           - Fixed timestep physics setup
-           - Display configuration
-        2. Initialization Sequence
-           - Physics timing parameters
-           - Pygame setup
-           - Subsystem initialization
-           - Game state setup
-        """
         try:
             self.config = config
             self.fixed_timestep = config.fixed_timestep
@@ -117,18 +62,6 @@ class TetrisGame:
             raise
 
     def _initialize_pygame(self) -> None:
-        """
-        Initialize Pygame with proper display configuration.
-
-        Configures:
-        - Display mode and resolution
-        - Double buffering
-        - VSync (if enabled)
-        - Fullscreen mode (if enabled)
-
-        Raises:
-            pygame.error: If display initialization fails
-        """
         pygame.init()
         pygame.display.init()
 
@@ -149,10 +82,6 @@ class TetrisGame:
         )
 
     def _initialize_game_controls(self) -> None:
-        """
-        Initialize all game control methods and movement handlers.
-        This ensures all necessary control methods exist before input handler setup.
-        """
         self.move_left = lambda: self._move_piece(-1, 0)
         self.move_right = lambda: self._move_piece(1, 0)
         self.soft_drop = lambda: self._move_piece(0, 1)
@@ -160,11 +89,41 @@ class TetrisGame:
         self.rotate_ccw = lambda: self._rotate_piece(False)
         self.hard_drop = self._hard_drop
         self.hold = self._hold_piece
-
         self.info_log("Game controls initialized")
 
+    def reset(self) -> None:
+        try:
+            self.grid.reset()
+            self.score_handler.reset()
+
+            self.level = self.config.initial_level
+            self.lines_cleared = 0
+            self.combo_counter = 0
+            self.held_piece = None
+            self.bag = []
+            self.next_pieces = [
+                self._get_next_piece() for _ in range(self.config.preview_pieces)
+            ]
+            self.current_piece = self._get_next_piece()
+
+            if not self.grid.can_place(self.current_piece, self.current_piece.x, self.current_piece.y):
+                self.info_log("Game over - cannot spawn new piece")
+                self.state = GameState.GAME_OVER
+            else:
+                self.state = GameState.PLAYING
+
+            self.lock_delay_start = None
+            self.lock_delay_accumulated = 0.0
+            self.physics_accumulator = 0.0
+            self.gravity_timer = 0.0
+
+            self.info_log("Game state reset completed")
+
+        except Exception as e:
+            self.info_log("Failed to reset game state: %s", str(e))
+            raise
+
     def _initialize_subsystems(self) -> None:
-        """Initialize all game subsystems with comprehensive error handling."""
         initialized_systems = []
         try:
             self._initialize_game_controls()
@@ -206,15 +165,6 @@ class TetrisGame:
             raise
 
     def _setup_input_handler(self) -> None:
-        """
-        Configure input handling system with callback mappings.
-        Maps game actions to their corresponding handler methods.
-        Configures:
-        - Movement controls
-        - Rotation controls
-        - Game state controls
-        - Debug controls
-        """
         callbacks = {
             'MOVE_LEFT': self.move_left,
             'MOVE_RIGHT': self.move_right,
@@ -233,16 +183,6 @@ class TetrisGame:
         self.info_log("Input handler configured with %d callbacks", len(callbacks))
 
     def _initialize_game_state(self) -> None:
-        """
-        Initialize core game state variables and counters.
-
-        Initializes:
-        - Game state enum
-        - Performance counters
-        - Level and scoring state
-        - Piece management state
-        - Timing variables
-        """
         self.state = GameState.MENU
         self.frame_counter = 0
         self.physics_updates = 0
@@ -262,68 +202,14 @@ class TetrisGame:
 
         self.info_log("Game state initialized")
 
-    def reset(self) -> None:
-        """
-        Reset the game state to start a new game.
-
-        Resets:
-        - Grid state
-        - Score system
-        - Level progression
-        - Piece management
-        - Timing variables
-
-        Raises:
-            Exception: If state reset fails
-        """
-        try:
-            self.grid.reset()
-            self.score_handler.reset()
-
-            self.level = self.config.initial_level
-            self.lines_cleared = 0
-            self.combo_counter = 0
-            self.held_piece = None
-            self.bag = []
-            self.next_pieces = [
-                self._get_next_piece() for _ in range(self.config.preview_pieces)
-            ]
-            self.current_piece = self._get_next_piece()
-
-            if not self.grid.can_place(self.current_piece, self.current_piece.x, self.current_piece.y):
-                self.info_log("Game over - cannot spawn new piece")
-                self.state = GameState.GAME_OVER
-            else:
-                self.state = GameState.PLAYING
-
-            self.lock_delay_start = None
-            self.lock_delay_accumulated = 0.0
-            self.physics_accumulator = 0.0
-            self.gravity_timer = 0.0
-
-            self.info_log("Game state reset completed")
-
-        except Exception as e:
-            self.info_log("Failed to reset game state: %s", str(e))
-            raise
-
     def debug_log(self, message: str, *args) -> None:
-        """Emit a debug log if debug_mode is enabled."""
         if self.config.debug_mode:
             game_logger.debug(message, *args)
 
     def info_log(self, message: str, *args) -> None:
-        """Emit an info log."""
         game_logger.info(message, *args)
 
     def _move_piece(self, dx: int, dy: int) -> None:
-        """
-        Move the current piece by the specified delta.
-
-        Args:
-            dx: Horizontal movement (-1 for left, 1 for right)
-            dy: Vertical movement (1 for down)
-        """
         if self.current_piece and self.state == GameState.PLAYING:
             if self.grid.can_move(
                 self.current_piece,
@@ -332,8 +218,6 @@ class TetrisGame:
             ):
                 self.current_piece.x += dx
                 self.current_piece.y += dy
-
-                # Removed self._reset_lock_delay() so movement doesn't reset lock timer.
 
                 if dy > 0:
                     self.score_handler.add(
@@ -349,15 +233,8 @@ class TetrisGame:
                 )
 
     def _rotate_piece(self, clockwise: bool) -> None:
-        """
-        Rotate the current piece with wall kick validation.
-
-        Args:
-            clockwise: Direction of rotation
-        """
         if self.current_piece and self.state == GameState.PLAYING:
             if self.current_piece.try_rotation(self.grid, clockwise):
-                # Removed self._reset_lock_delay() so rotation doesn't reset lock timer.
                 self.sound_manager.play_sound('rotate')
                 self.debug_log(
                     "Piece rotated %s to rotation %d",
@@ -368,7 +245,6 @@ class TetrisGame:
                 self.debug_log("Rotation failed for piece '%s'", self.current_piece.piece_type)
 
     def _hard_drop(self) -> None:
-        """Instantly drop the current piece to its final position."""
         if self.current_piece and self.state == GameState.PLAYING:
             drop_distance = 0
             while self.grid.can_move(
@@ -393,7 +269,6 @@ class TetrisGame:
             )
 
     def _hold_piece(self) -> None:
-        """Hold the current piece or swap with held piece."""
         if not self.current_piece or self.state != GameState.PLAYING:
             return
 
@@ -409,18 +284,6 @@ class TetrisGame:
         self.debug_log("Piece held")
 
     def run(self) -> None:
-        """
-        Main game loop implementing fixed timestep physics and interpolated rendering.
-
-        Features:
-        - Fixed timestep physics updates (60 Hz)
-        - Frame time clamping to prevent spiral of death
-        - Performance monitoring and logging
-        - Proper resource cleanup
-
-        Raises:
-            Exception: If fatal error occurs in game loop
-        """
         try:
             self.running = True
             last_time = time.perf_counter()
@@ -444,7 +307,6 @@ class TetrisGame:
                         else:
                             self.lock_delay_accumulated += self.fixed_timestep
 
-                        # Interpreting lock_delay as milliseconds -> config says "500" means 0.5s
                         if self.lock_delay_accumulated >= self.config.lock_delay / 1000.0:
                             self._lock_piece()
                             self._clear_lines()
@@ -476,20 +338,6 @@ class TetrisGame:
             self.cleanup()
 
     def _render_frame(self) -> None:
-        """
-        Render a complete frame with interpolation for smooth animation.
-
-        This method handles:
-        - Clearing render surfaces
-        - Drawing the game grid
-        - Rendering active piece and ghost piece
-        - Drawing UI elements
-        - Composing the final frame
-        - Debug information (if enabled)
-
-        Implementation follows the established rendering pipeline with proper
-        state handling and performance monitoring.
-        """
         try:
             self.renderer.clear_surfaces()
 
@@ -540,14 +388,6 @@ class TetrisGame:
             raise
 
     def _handle_events(self) -> None:
-        """
-        Process all pending input events.
-
-        Handles:
-        - Window events (quit)
-        - Keyboard input
-        - Game state transitions
-        """
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
@@ -557,12 +397,6 @@ class TetrisGame:
                 self.input_handler.handle_event(event)
 
     def _handle_menu_input(self, event: pygame.event.Event) -> None:
-        """
-        Process input events for menu navigation.
-
-        Args:
-            event: Pygame event to process
-        """
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_UP:
                 self.selected_menu_index = (self.selected_menu_index - 1) % 4
@@ -574,7 +408,6 @@ class TetrisGame:
                 self._handle_menu_selection()
 
     def _handle_menu_selection(self) -> None:
-        """Handle menu option selection and trigger appropriate actions."""
         menu_options = ["Start Game", "Options", "High Scores", "Quit"]
         selected_option = menu_options[self.selected_menu_index]
         self.info_log(f"Menu option selected: {selected_option}")
@@ -590,23 +423,10 @@ class TetrisGame:
             self.running = False
 
     def _update_physics(self, delta_time: float) -> None:
-        """
-        Update game physics with fixed timestep.
-
-        Implements:
-        - Piece gravity based on gravity_delay
-        - Lock delay system
-        - Line clearing
-        - Game over detection
-
-        Args:
-            delta_time: Fixed physics timestep duration
-        """
         if self.state != GameState.PLAYING:
             return
 
     def toggle_pause(self) -> None:
-        """Toggle game pause state with proper state transitions."""
         if self.state == GameState.PLAYING:
             self.state = GameState.PAUSED
             self.info_log("Game paused")
@@ -615,38 +435,20 @@ class TetrisGame:
             self.info_log("Game resumed")
 
     def toggle_debug(self) -> None:
-        """
-        Toggle debug mode for performance monitoring and visualization.
-        Updates configuration and triggers appropriate rendering changes.
-        """
         self.config.debug_mode = not self.config.debug_mode
         self.info_log(f"Debug mode {'enabled' if self.config.debug_mode else 'disabled'}")
 
     def set_log_level(self) -> None:
-        """
-        Toggle logging level between DEBUG and INFO.
-        Affects granularity of performance and game state logging.
-        """
         current_level = game_logger.level
         new_level = logging.DEBUG if current_level != logging.DEBUG else logging.INFO
         game_logger.setLevel(new_level)
         game_logger.info(f"Log level set to {logging.getLevelName(new_level)}")
 
     def quit_game(self) -> None:
-        """
-        Initiate graceful game shutdown sequence.
-        Handles state saving, resource cleanup, and exit procedures.
-        """
         self.running = False
         self.info_log("Initiating game shutdown")
 
     def _apply_gravity(self) -> bool:
-        """
-        Apply gravity to the current piece.
-
-        Returns:
-            bool: True if the piece moved down, False if blocked
-        """
         if not self.current_piece:
             return False
 
@@ -661,12 +463,6 @@ class TetrisGame:
         return False
 
     def _reset_piece_position(self, piece: Tetrimino) -> None:
-        """
-        Reset a piece to its initial spawn position.
-
-        Args:
-            piece: The Tetrimino to reset
-        """
         if piece.piece_type == 'I':
             piece.x = (self.config.columns - 4)
         elif piece.piece_type == 'O':
@@ -683,10 +479,6 @@ class TetrisGame:
         )
 
     def _lock_piece(self) -> None:
-        """
-        Lock the current piece into the grid and handle post-lock operations.
-        Updates game state and triggers appropriate sound effects.
-        """
         if self.current_piece:
             self.grid.lock_piece(self.current_piece)
             self.sound_manager.play_sound('lock')
@@ -696,15 +488,6 @@ class TetrisGame:
             )
 
     def _clear_lines(self) -> None:
-        """
-        Clear completed lines and update score/level progression.
-
-        Handles line clearing mechanics including:
-        - Detection of completed lines
-        - Removal of completed lines with animations
-        - Score calculation and combo system
-        - Level progression
-        """
         try:
             cleared_lines = self.grid.detect_cleared_lines()
             lines_cleared = len(cleared_lines)
@@ -731,14 +514,6 @@ class TetrisGame:
             game_logger.error("Error clearing lines: %s", str(e))
 
     def _calculate_reward(self, lines_cleared: int) -> int:
-        """
-        Calculate score reward based on lines cleared and current level.
-
-        Args:
-            lines_cleared: Number of lines cleared in current move
-        Returns:
-            int: Calculated score reward
-        """
         try:
             if lines_cleared == 1:
                 reward = self.config.scoring_values['single'] * self.level
@@ -759,11 +534,6 @@ class TetrisGame:
             else:
                 self.combo_counter = 0
 
-            self.debug_log(
-                "Calculated reward: %d for %d lines (combo: %d)",
-                reward, lines_cleared, self.combo_counter
-            )
-
             popup_position = (self.config.screen_width + 20, 250)
             self.renderer.add_score_popup(reward, popup_position)
             return reward
@@ -773,43 +543,23 @@ class TetrisGame:
             return 0
 
     def _update_gravity_speed(self) -> None:
-        """
-        Update gravity_delay based on the current level.
-        Lower levels have slower gravity; higher levels have faster gravity.
-        """
         new_gravity_delay = max(0.1, 1.0 - (self.level - 1) * 0.05)
         self.config.gravity_delay = new_gravity_delay
         self.info_log(f"Gravity speed updated: gravity_delay = {self.config.gravity_delay:.2f}s")
 
     def _fill_bag(self) -> None:
-        """
-        Fill the piece bag using 7-bag randomization system.
-        Ensures fair piece distribution and predictable randomization.
-        """
         if not self.bag:
             self.bag = list(TetriminoData.SHAPES.keys())
             random.shuffle(self.bag)
             self.debug_log("Filled piece bag: %s", self.bag)
 
     def _get_next_piece(self) -> Tetrimino:
-        """
-        Retrieve the next piece from the bag with 7-bag system.
-
-        Returns:
-            Tetrimino: A new piece instance
-        """
         self._fill_bag()
         piece_type = self.bag.pop()
         self.debug_log("Got next piece: %s", piece_type)
         return Tetrimino(piece_type, self.config.grid_size, self.config.columns)
 
     def _spawn_new_piece(self) -> bool:
-        """
-        Spawn a new tetrimino piece and update the preview queue.
-
-        Returns:
-            bool: True if piece spawned successfully, False if spawn blocked
-        """
         try:
             self.current_piece = self.next_pieces.pop(0)
             new_piece = self._get_next_piece()
@@ -829,7 +579,6 @@ class TetrisGame:
             return False
 
     def _spawn_particle_effects_for_cleared_lines(self) -> None:
-        """Spawn particle effects for each cleared line."""
         cleared_lines = self.grid.get_cleared_lines()
         for y in cleared_lines:
             for x in range(self.config.columns):
@@ -837,12 +586,6 @@ class TetrisGame:
         self.debug_log("Spawned particle effects for cleared lines")
 
     def _animate_line_clears(self, cleared_lines: List[int]) -> None:
-        """
-        Animate the clearing of lines with a flashing effect.
-
-        Args:
-            cleared_lines (List[int]): List of row indices to animate.
-        """
         animation_duration = 0.5
         animation_steps = 30
         for step in range(animation_steps):
@@ -860,15 +603,6 @@ class TetrisGame:
             pygame.time.delay(int(animation_duration * 1000 / animation_steps))
 
     def cleanup(self) -> None:
-        """
-        Perform cleanup operations before game exit.
-
-        Handles:
-        - Resource deallocation
-        - High score saving
-        - Pygame shutdown
-        - Logging cleanup
-        """
         try:
             self.score_handler.save_high_score()
             pygame.quit()
@@ -877,12 +611,6 @@ class TetrisGame:
             self.info_log("Error during cleanup: %s", str(e))
 
     def get_metrics(self) -> GameMetrics:
-        """
-        Get current game performance metrics.
-
-        Returns:
-            GameMetrics: Container with current game metrics
-        """
         return GameMetrics(
             frame_count=self.frame_counter,
             physics_updates=self.physics_updates,
@@ -892,17 +620,6 @@ class TetrisGame:
         )
 
     def _cleanup_partial_initialization(self, initialized_systems: List[str]) -> None:
-        """
-        Clean up partially initialized systems after initialization failure.
-
-        Args:
-            initialized_systems: List of system names that were initialized
-
-        Implementation:
-        - Reverse order cleanup
-        - Resource deallocation
-        - State reset
-        """
         self.debug_log(
             "Cleaning up partial initialization: %s",
             ', '.join(initialized_systems)

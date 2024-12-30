@@ -216,11 +216,6 @@ class TetriminoData:
 
     @classmethod
     def validate_shape(cls, shape: List[List[int]]) -> bool:
-        """
-        Validate that the shape matrix is square and non-empty.
-        :param shape: The shape matrix to validate
-        :return: True if the shape matrix is square (NxN) and not empty
-        """
         if not shape:
             return False
         size = len(shape)
@@ -231,14 +226,6 @@ class TetriminoData:
 
     @classmethod
     def get_initial_shape(cls, piece_type: str, rotation: int = 0) -> Shape:
-        """
-        Retrieve the shape matrix for a given piece type and rotation index.
-        :param piece_type: The Tetrimino type, e.g. 'I', 'O', 'T', ...
-        :param rotation: 0-based rotation index (0 to 3)
-        :return: The shape matrix corresponding to that piece type and rotation
-        :raises KeyError: If an invalid piece_type is provided
-        :raises IndexError: If an invalid rotation is provided
-        """
         try:
             shapes = cls.SHAPES[piece_type]
             return shapes[rotation % len(shapes)]
@@ -250,17 +237,7 @@ class TetriminoData:
             raise
 
 class Tetrimino:
-    """
-    Represents a single Tetris piece, including its type, rotation, position,
-    and collision checks. Also handles rotation logic with SRS wall kicks.
-    """
     def __init__(self, piece_type: str, grid_size: int, columns: int):
-        """
-        Initialize a Tetrimino object.
-        :param piece_type: The type of the piece, e.g. 'I', 'O', 'T', ...
-        :param grid_size: The size of each cell in the grid (pixel dimension)
-        :param columns: Number of columns in the Tetris grid
-        """
         self.piece_type = piece_type
         self.grid_size = grid_size
         self.columns = columns
@@ -279,22 +256,9 @@ class Tetrimino:
                               self.piece_type, self.x, self.y, self.rotation)
 
     def get_rotated_shape(self, new_rotation: int) -> Shape:
-        """
-        Get the shape matrix for a new rotation without modifying the current state.
-        :param new_rotation: The target rotation index
-        :return: The shape matrix for that rotation
-        """
         return TetriminoData.get_initial_shape(self.piece_type, new_rotation)
 
     def try_rotation(self, grid: Grid, clockwise: bool = True) -> bool:
-        """
-        Attempt to rotate the piece with SRS wall kicks.
-        If a valid position is found (i.e., the rotation can occur without collision),
-        apply it. Otherwise revert to the old rotation.
-        :param grid: The game grid (Grid instance)
-        :param clockwise: Whether the rotation is clockwise (True) or counterclockwise (False)
-        :return: True if the rotation succeeds, False if it fails
-        """
         old_rotation = self.rotation
         if clockwise:
             self.rotation = (self.rotation + 1) % 4
@@ -323,15 +287,6 @@ class Tetrimino:
 
     def is_valid_position(self, grid: Grid, x: int, y: int,
                           shape: Optional[Shape] = None) -> bool:
-        """
-        Check if the piece at position (x, y) with the given shape is in a valid position within the grid.
-        A position is valid if no blocks fall outside the grid boundaries or into occupied cells.
-        :param grid: The game grid (Grid instance)
-        :param x: Left coordinate in grid cells
-        :param y: Top coordinate in grid cells
-        :param shape: The shape matrix to check. If None, use self.shape
-        :return: True if the position is valid, False otherwise
-        """
         if shape is None:
             shape = self.shape
         for row_idx, row in enumerate(shape):
@@ -351,11 +306,6 @@ class Tetrimino:
         return True
 
     def get_ghost_position(self, grid: Grid) -> int:
-        """
-        Calculate the y position where the piece would land if it were hard dropped now.
-        :param grid: The game grid (Grid instance)
-        :return: The y coordinate of the final position
-        """
         ghost_y = self.y
         while self.is_valid_position(grid, self.x, ghost_y + 1):
             ghost_y += 1
@@ -365,8 +315,4 @@ class Tetrimino:
         return ghost_y
 
     def save_position(self) -> None:
-        """
-        Placeholder method to save the current (x, y, rotation) if you want to keep
-        a history or an undo/redo stack. Currently unused.
-        """
         pass
