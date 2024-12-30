@@ -1,5 +1,6 @@
-# File: input/action_registry.py
+import logging
 from typing import Callable, Dict, Optional
+
 
 class ActionRegistry:
     def __init__(self):
@@ -31,4 +32,4 @@ class ActionRegistry:
         """
         for action in required_actions:
             if action not in self.action_to_callback:
-                print(f"Warning: No callback registered for action '{action}'.")
+                logging.warning(f"No callback registered for action '{action}'.")

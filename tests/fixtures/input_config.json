@@ -1,0 +1,14 @@
+{
+    "MOVE_RIGHT": "RIGHT",
+    "SOFT_DROP": "DOWN",
+    "ROTATE_CW": "UP",
+    "ROTATE_CCW": "Z",
+    "HARD_DROP": "SPACE",
+    "HOLD": "C",
+    "PAUSE": "P",
+    "RESTART": "R",
+    "QUIT": "Q",
+    "TOGGLE_DEBUG": "D",
+    "SET_LOG_LEVEL": "L",
+    "MOVE_LEFT": "LEFT"
+}

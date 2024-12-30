@@ -5,11 +5,12 @@ import os
 import sys
 from typing import List, Dict, Tuple, Optional
 from utils.logging_setup import setup_logging
+
 loggers = setup_logging()
 resource_logger = loggers['resource']
 
 Shape = List[List[int]]
-Grid = 'Grid'  # Forward declaration for type hinting
+Grid = List[List[Optional[str]]] 
 
 class TetriminoData:
     """Static data for Tetrimino shapes and wall kick data."""
@@ -245,13 +246,11 @@ class Tetrimino:
         self.shape = TetriminoData.get_initial_shape(piece_type, self.rotation)
         self.height = len(self.shape)
         self.width = len(self.shape[0])
-        if piece_type == 'I':
-            self.x = (self.columns - 4) // 2  # Center the piece
-        elif piece_type == 'O':
-            self.x = (self.columns - 2) // 2
-        else:
-            self.x = (self.columns - 3) // 2
-        self.y = 0
+
+        # Dynamically calculate horizontal offset based on piece width
+        self.x = (self.columns - self.width) // 2
+        self.y = 0  # Default to top row
+
         resource_logger.debug(
             "Initialized Tetrimino '%s' at position (%d, %d) with rotation %d",
             self.piece_type, self.x, self.y, self.rotation
@@ -274,36 +273,57 @@ class Tetrimino:
             self.piece_type, positions
         )
         return positions
-        
+
     def get_rotated_shape(self, new_rotation: int) -> Shape:
         return TetriminoData.get_initial_shape(self.piece_type, new_rotation)
 
     def try_rotation(self, grid: Grid, clockwise: bool = True) -> bool:
+        """
+        Attempt to rotate the Tetrimino and adjust position using wall kicks if needed.
+        """
         old_rotation = self.rotation
+        direction = "clockwise" if clockwise else "counterclockwise"
+        resource_logger.debug(
+            "Attempting %s rotation for '%s' from rotation %d",
+            direction, self.piece_type, old_rotation
+        )
+
         if clockwise:
             self.rotation = (self.rotation + 1) % len(TetriminoData.SHAPES[self.piece_type])
         else:
             self.rotation = (self.rotation - 1) % len(TetriminoData.SHAPES[self.piece_type])
+
         new_shape = self.get_rotated_shape(self.rotation)
         wall_kicks = TetriminoData.WALL_KICK_DATA.get(self.piece_type, {})
         rotation_key = (old_rotation, self.rotation)
         kicks = wall_kicks.get(rotation_key, [(0, 0)])
+        resource_logger.debug("Wall kicks for rotation (%d -> %d): %s", old_rotation, self.rotation, kicks)
 
         for dx, dy in kicks:
             new_x = self.x + dx
             new_y = self.y + dy
-            if self.is_valid_position(grid, new_x, new_y, new_shape):
+            valid = self.is_valid_position(grid, new_x, new_y, new_shape)
+            resource_logger.debug(
+                "Testing kick: dx=%d, dy=%d, new_x=%d, new_y=%d, valid=%s",
+                dx, dy, new_x, new_y, valid
+            )
+            if valid:
                 self.x = new_x
                 self.y = new_y
                 self.shape = new_shape
+                resource_logger.debug("Rotation successful to (%d, %d)", self.x, self.y)
                 return True
 
         # Revert rotation if no valid kick
         self.rotation = old_rotation
+        resource_logger.debug("Rotation failed. Reverted to rotation %d", old_rotation)
         return False
 
 
     def is_valid_position(self, grid: Grid, x: int, y: int, shape: Optional[Shape] = None) -> bool:
+        """
+        Check if the Tetrimino is in a valid position on the grid.
+        """
         if shape is None:
             shape = self.shape
         for row_idx, row in enumerate(shape):
@@ -311,22 +331,28 @@ class Tetrimino:
                 if cell:
                     grid_x = x + col_idx
                     grid_y = y + row_idx
-                    # Check horizontal boundaries
+                    # Check boundaries
                     if grid_x < 0 or grid_x >= self.columns:
                         resource_logger.debug("Invalid position: x=%d out of bounds", grid_x)
                         return False
-                    # Check vertical boundaries
                     if grid_y < 0 or grid_y >= len(grid):
                         resource_logger.debug("Invalid position: y=%d out of bounds", grid_y)
                         return False
                     # Check cell occupancy
                     if grid_y >= 0 and grid[grid_y][grid_x] is not None:
-                        resource_logger.debug("Invalid position: cell (%d, %d) is occupied", grid_x, grid_y)
+                        resource_logger.debug(
+                            "Invalid position: cell (%d, %d) is occupied by '%s'",
+                            grid_x, grid_y, grid[grid_y][grid_x]
+                        )
                         return False
         resource_logger.debug("Position (%d, %d) is valid", x, y)
         return True
 
+
     def get_ghost_position(self, grid: Grid) -> int:
+        """
+        Calculate the ghost position (lowest possible y) for the Tetrimino.
+        """
         ghost_y = self.y
         while self.is_valid_position(grid, self.x, ghost_y + 1):
             ghost_y += 1
@@ -334,7 +360,6 @@ class Tetrimino:
                 break
         resource_logger.debug("Ghost position for '%s' is y=%d", self.piece_type, ghost_y)
         return ghost_y
-
 
     def save_position(self) -> None:
         pass
