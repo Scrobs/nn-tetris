@@ -7,6 +7,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Conv2D, Flatten, Input
 from tensorflow.keras.optimizers import Adam
 
+
 class DQNAgent:
     """
     Deep Q-Network (DQN) agent for Tetris.
@@ -47,13 +48,13 @@ class DQNAgent:
         """
         model = Sequential()
         model.add(Input(shape=self.state_shape))
-        model.add(Conv2D(32, kernel_size=(3, 3), activation='relu', padding='same'))
-        model.add(Conv2D(64, kernel_size=(3, 3), activation='relu', padding='same'))
-        model.add(Conv2D(64, kernel_size=(3, 3), activation='relu', padding='same'))
+        model.add(Conv2D(32, kernel_size=(3, 3), activation="relu", padding="same"))
+        model.add(Conv2D(64, kernel_size=(3, 3), activation="relu", padding="same"))
+        model.add(Conv2D(64, kernel_size=(3, 3), activation="relu", padding="same"))
         model.add(Flatten())
-        model.add(Dense(128, activation='relu'))
-        model.add(Dense(self.action_size, activation='linear'))
-        model.compile(optimizer=Adam(learning_rate=self.learning_rate), loss='mse')
+        model.add(Dense(128, activation="relu"))
+        model.add(Dense(self.action_size, activation="linear"))
+        model.compile(optimizer=Adam(learning_rate=self.learning_rate), loss="mse")
         return model
 
     def update_target_model(self):
@@ -82,6 +83,7 @@ class DQNAgent:
         Train the model using a batch of experiences from memory.
         """
         if len(self.memory) < self.batch_size:
+            print("Insufficient memory size to train.")
             return
 
         minibatch = random.sample(self.memory, self.batch_size)
@@ -103,6 +105,7 @@ class DQNAgent:
             q_values[i][actions[i]] = target
 
         # Train the model
+        print(f"Training with states: {states.shape}, Q-values: {q_values.shape}")
         self.model.fit(states, q_values, epochs=1, verbose=0)
 
         # Reduce epsilon

@@ -1,5 +1,3 @@
-# config/game_config.py
-
 import json
 import logging
 from typing import Dict, Any, Optional
@@ -8,6 +6,7 @@ from utils.logging_setup import setup_logging
 
 loggers = setup_logging()
 game_logger = loggers['game']
+
 
 class GameConfig:
     def __init__(self, config: Optional[Dict[str, Any]] = None):
