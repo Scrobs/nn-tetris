@@ -34,15 +34,16 @@ class TestGameConfig(unittest.TestCase):
             },
         }
 
-    @patch("builtins.open", new_callable=mock_open, read_data=json.dumps({"screen_width": 500, "screen_height": 800}))
+    @patch("builtins.open", new_callable=mock_open, read_data=json.dumps({"screen_width": 600, "screen_height": 900}))
     def test_load_config(self, mock_file):
         """
         Test loading a configuration from a JSON file.
         """
         config = GameConfig.load_config("mock_config.json")
-        self.assertEqual(config.screen_width, 500)
-        self.assertEqual(config.screen_height, 800)
+        self.assertEqual(config.screen_width, 600)
+        self.assertEqual(config.screen_height, 900)
         mock_file.assert_called_once_with("mock_config.json", "r")
+
 
     @patch("builtins.open", new_callable=mock_open)
     @patch("pathlib.Path.rename")
